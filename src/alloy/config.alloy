@@ -1,0 +1,58 @@
+discovery.docker "linux" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// Drop every target except the ones you want, then pass the rest to loki.source.docker.
+discovery.relabel "pick_backend" {
+  targets = discovery.docker.linux.targets
+
+  // Docker Compose: service name from docker-compose.yml (here: backend).
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    regex         = "^backend$"
+    action        = "keep"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    target_label  = "container"
+    regex         = "/?(.*)"
+    replacement   = "${1}"
+    action        = "replace"
+  }
+
+  rule {
+    target_label = "job"
+    replacement  = "backend"
+    action       = "replace"
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.pick_backend.output
+  forward_to = [loki.process.logs.receiver]
+}
+
+loki.process "logs" {
+  stage.json {
+    expressions = {
+      level = "level",
+      msg   = "msg",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level = "",
+    }
+  }
+
+  forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

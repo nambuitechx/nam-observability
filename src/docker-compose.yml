@@ -9,6 +9,11 @@ services:
       - "8000:8000"
     networks:
       - app_network
+    depends_on:
+      - alloy
+    environment:
+      ALLOY_HOST: alloy
+      ALLOY_PORT: "4318"
   
   alloy:
     image: grafana/alloy:latest
@@ -17,10 +22,13 @@ services:
       - ./alloy/config.alloy:/etc/alloy/config.alloy
       - /var/run/docker.sock:/var/run/docker.sock
     command: ["run", "/etc/alloy/config.alloy"]
+    ports:
+      - "4318:4318"
     networks:
       - app_network
     depends_on:
       - loki
+      - tempo
   
   loki:
     image: grafana/loki:latest
@@ -32,12 +40,30 @@ services:
     networks:
       - app_network
   
+  tempo:
+    image: grafana/tempo:2.10.4
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo.yaml
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"
+    networks:
+      - app_network
+
   grafana:
     image: grafana/grafana:latest
     ports:
       - "3000:3000"
     networks:
       - app_network
+    depends_on:
+      - tempo
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+
+volumes:
+  tempo_data:

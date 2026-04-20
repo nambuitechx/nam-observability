@@ -1,12 +1,12 @@
+// ---------------- LOGS (your existing setup) ----------------
+
 discovery.docker "linux" {
   host = "unix:///var/run/docker.sock"
 }
 
-// Drop every target except the ones you want, then pass the rest to loki.source.docker.
 discovery.relabel "pick_backend" {
   targets = discovery.docker.linux.targets
 
-  // Docker Compose: service name from docker-compose.yml (here: backend).
   rule {
     source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
     regex         = "^backend$"
@@ -54,5 +54,47 @@ loki.process "logs" {
 loki.write "default" {
   endpoint {
     url = "http://loki:3100/loki/api/v1/push"
+  }
+}
+
+
+// ---------------- TRACES (NEW) ----------------
+
+otelcol.receiver.otlp "default" {
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    traces = [otelcol.processor.batch.default.input]
+  }
+}
+
+otelcol.processor.batch "default" {
+  output {
+    traces = [otelcol.processor.attributes.enrich.input]
+  }
+}
+
+otelcol.processor.attributes "enrich" {
+  action {
+    key = "env"
+    value = "dev"
+    action = "insert"
+  }
+
+  output {
+    traces = [otelcol.exporter.otlphttp.tempo.input]
+  }
+}
+
+// Tempo listens for OTLP HTTP on 4318; use otlphttp (not otlp, which is gRPC / 4317).
+otelcol.exporter.otlphttp "tempo" {
+  client {
+    endpoint = "http://tempo:4318"
+    tls {
+      insecure             = true
+      insecure_skip_verify = true
+    }
   }
 }

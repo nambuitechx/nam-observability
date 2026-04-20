@@ -9,13 +9,15 @@ import (
 
 	"github.com/nambuitechx/nam-observaility/internal"
 	"github.com/nambuitechx/nam-observaility/internal/configs"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 func main() {
 	r := internal.NewRouter()
+	h := otelhttp.NewHandler(r.Router, "http-server")
 	srv := &http.Server{
-		Addr: fmt.Sprintf(":%s", r.Port),
-		Handler: r.Router,
+		Addr:    fmt.Sprintf(":%s", r.Port),
+		Handler: h,
 	}
 
 	go func() {
@@ -28,9 +30,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	<- ctx.Done()
+	<-ctx.Done()
+	// Drain HTTP first so in-flight spans export, then flush/shutdown the tracer provider.
+	_ = srv.Shutdown(context.Background())
 	r.Shutdown()
-	srv.Shutdown(context.Background())
-	
+
 	configs.Logger.Info("server grafully shuts down")
 }
